@@ -9,7 +9,7 @@ from transformers.feature_extraction_utils import BatchFeature
 
 logger = logging.get_logger(__name__)
 
-class CoEncoderTokenizer(ProcessorMixin):
+class CoEncoderDualTokenizer(ProcessorMixin):
     r"""
     CoEncoderProcessor is a processor for the CoEncoder model. It processes context and main text.
 
