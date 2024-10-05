@@ -11,7 +11,7 @@ logger = logging.get_logger(__name__)
 
 class CoEncoderDualTokenizer(ProcessorMixin):
     r"""
-    CoEncoderProcessor is a processor for the CoEncoder model. It processes context and main text.
+    CoEncoderDualTokenizer is tokenizer for the CoEncoder model. It processes context and main text.
 
     Args:
         context_tokenizer ([`PreTrainedTokenizer`]):
