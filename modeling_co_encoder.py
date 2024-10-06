@@ -90,7 +90,7 @@ class CoEncoderContextTower(nn.Module):
         super().__init__()
 
         self.llm = AutoModelForCausalLM.from_config(
-            config.context_config, attn_implementation=config._attn_implementation
+            config.context_config
         )
         self.select_layer = config.context_feature_layer
     
@@ -140,7 +140,7 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
         self.multi_modal_projector = CoEncoderMultiModalProjector(config)
 
         self.language_model = AutoModelForCausalLM.from_config(
-            config.text_config, attn_implementation=config._attn_implementation
+            config.text_config
         )
 
         self.vocab_size = config.text_config.vocab_size
