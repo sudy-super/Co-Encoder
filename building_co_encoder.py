@@ -2,12 +2,15 @@
 """CoEncoder model builder"""
 
 from transformers import AutoModel, AutoModelForCausalLM, AutoConfig
+from transformers.utils import is_flash_attn_2_available
 from .modeling_co_encoder import (
     CoEncoderForConditionalGeneration, 
     CoEncoderConfig, 
     CoEncoderMultiModalProjector,
     CoEncoderContextTower
 )
+
+
 import torch
 import os
 
@@ -34,8 +37,18 @@ class CoEncoderModelBuilder:
         Build the CoEncoder model from separate LLMs and save it.
         """
         # Load the separate models
-        context_model = AutoModel.from_pretrained(self.context_model_name)
-        text_model = AutoModelForCausalLM.from_pretrained(self.text_model_name)
+        context_model = AutoModel.from_pretrained(
+            self.context_model_name, 
+            attn_implementation=(
+                "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
+            )
+        )
+        text_model = AutoModelForCausalLM.from_pretrained(
+            self.text_model_name, 
+            attn_implementation=(
+                "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
+            )
+        )
 
         # Create CoEncoder config
         config = CoEncoderConfig(
