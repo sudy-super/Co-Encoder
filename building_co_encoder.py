@@ -41,13 +41,15 @@ class CoEncoderModelBuilder:
             self.context_model_name, 
             attn_implementation=(
                 "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
-            )
+            ),
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16
         )
         text_model = AutoModelForCausalLM.from_pretrained(
             self.text_model_name, 
             attn_implementation=(
                 "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
-            )
+            ),
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16
         )
 
         # Create CoEncoder config
