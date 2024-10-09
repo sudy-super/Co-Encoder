@@ -3,7 +3,7 @@
 
 from transformers import AutoModel, AutoModelForCausalLM, AutoConfig
 from transformers.utils import is_flash_attn_2_available
-from .modeling_co_encoder import (
+from modeling_co_encoder import (
     CoEncoderForConditionalGeneration, 
     CoEncoderConfig, 
     CoEncoderMultiModalProjector,
