@@ -19,7 +19,7 @@ class CoEncoderModelBuilder:
     A class to build and save a CoEncoder model from separate LLM modules.
     """
 
-    def __init__(self, context_model_name, text_model_name, output_path):
+    def __init__(self, context_model_name, text_model_name, output_path, auth_token=None):
         """
         Initialize the CoEncoderModelBuilder.
 
@@ -31,25 +31,28 @@ class CoEncoderModelBuilder:
         self.context_model_name = context_model_name
         self.text_model_name = text_model_name
         self.output_path = output_path
+        self.auth_token = auth_token
 
     def build_and_save_model(self):
         """
         Build the CoEncoder model from separate LLMs and save it.
         """
         # Load the separate models
-        context_model = AutoModel.from_pretrained(
+        context_model = AutoModelForCausalLM.from_pretrained(
             self.context_model_name, 
             attn_implementation=(
                 "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
             ),
-            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16,
+            use_auth_token=self.auth_token if self.auth_token is not None else None
         )
         text_model = AutoModelForCausalLM.from_pretrained(
             self.text_model_name, 
             attn_implementation=(
                 "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
             ),
-            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16,
+            use_auth_token=self.auth_token if self.auth_token is not None else None
         )
 
         # Create CoEncoder config
