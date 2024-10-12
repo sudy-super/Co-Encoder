@@ -27,6 +27,7 @@ class CoEncoderConfig(PretrainedConfig):
     ):
         self.ignore_index = ignore_index
         self.projector_hidden_act = projector_hidden_act
+        self.context_feature_layer = context_feature_layer
         self.context_feature_select_strategy = context_feature_select_strategy
 
         if context_feature_select_strategy not in ["default"]:
@@ -51,4 +52,11 @@ class CoEncoderConfig(PretrainedConfig):
 
         self.text_config = text_config
 
-        super().__init__(tie_word_embeddings=tie_word_embeddings, **kwargs)
+        super().__init__(
+            tie_word_embeddings=tie_word_embeddings, 
+            ignore_index=ignore_index,
+            projector_hidden_act=projector_hidden_act,
+            context_feature_layer=context_feature_layer, 
+            context_feature_select_strategy=context_feature_select_strategy,
+            **kwargs
+        )

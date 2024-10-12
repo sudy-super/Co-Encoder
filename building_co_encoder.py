@@ -1,9 +1,10 @@
 # coding=utf-8
 """CoEncoder model builder"""
 
-from transformers import AutoModel, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from transformers.utils import is_flash_attn_2_available
-from modeling_co_encoder import (
+
+from .modeling_co_encoder import (
     CoEncoderForConditionalGeneration, 
     CoEncoderConfig, 
     CoEncoderMultiModalProjector,
@@ -13,6 +14,46 @@ from modeling_co_encoder import (
 
 import torch
 import os
+
+class CoEncoderTokenizerBuilder:
+    """
+    A class to build and save a CoEncoder tokenizer from separate LLM modules.
+    """
+
+    def __init__(self, context_model_name, text_model_name, output_path, auth_token=None):
+        """
+        Initialize the CoEncoderTokenizerBuilder.
+
+        Args:
+            context_model_name (str): The name or path of the context LLM.
+            text_model_name (str): The name or path of the text LLM.
+            output_path (str): The path to save the CoEncoder tokenizer.
+        """
+        self.context_model_name = context_model_name
+        self.text_model_name = text_model_name
+        self.output_path = output_path
+        self.auth_token = auth_token
+    
+    def build_and_save_tokenizer(self):
+        """
+        Build the CoEncoder tokenizer from separate LLMs and save it.
+        """
+        # Load the separate models
+        context_tokenizer = AutoTokenizer.from_pretrained(
+            self.context_model_name, 
+            use_fast=True,
+            use_auth_token=self.auth_token if self.auth_token is not None else None
+        )
+        text_tokenizer = AutoTokenizer.from_pretrained(
+            self.text_model_name, 
+            use_fast=True,
+            use_auth_token=self.auth_token if self.auth_token is not None else None
+        )
+
+        context_tokenizer.save_pretrained(self.output_path + "/context_tokenizer")
+        text_tokenizer.save_pretrained(self.output_path + "/text_tokenizer")
+
+        print(f"CoEncoder tokenizer saved to {self.output_path}")
 
 class CoEncoderModelBuilder:
     """
@@ -58,7 +99,8 @@ class CoEncoderModelBuilder:
         # Create CoEncoder config
         config = CoEncoderConfig(
             context_config=context_model.config,
-            text_config=text_model.config
+            text_config=text_model.config,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16
         )
 
         # Initialize CoEncoder model
@@ -74,7 +116,7 @@ class CoEncoderModelBuilder:
 
         # Save the combined model
         co_encoder_model.save_pretrained(self.output_path)
-        config.save_pretrained(self.output_path)
+        # config.save_pretrained(self.output_path)
 
         print(f"CoEncoder model saved to {self.output_path}")
 
@@ -99,3 +141,6 @@ class CoEncoderModelBuilder:
 
 # To load the saved model:
 # loaded_model = CoEncoderModelBuilder.from_pretrained("./co_encoder_model")
+
+# tokenizer_builder = CoEncoderTokenizerBuilder("bert-base-uncased", "gpt2", "./co_encoder_model")
+# tokenizer_builder.build_and_save_tokenizer()

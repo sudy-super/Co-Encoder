@@ -22,7 +22,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
-from configuration_co_encoder import CoEncoderConfig
+from .configuration_co_encoder import CoEncoderConfig
 
 
 logger = logging.get_logger(__name__)
@@ -241,6 +241,12 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CoEncoderCausalLMOutputWithPast]:
+        """
+        Temporary docstring
+
+        Returns:
+        """
+
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states

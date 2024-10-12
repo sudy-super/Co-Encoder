@@ -2,12 +2,25 @@
 """Tokenization classes for CoEncoder"""
 
 from typing import List, Union, Optional
-from transformers.processing_utils import ProcessorMixin
+from transformers import AutoTokenizer
+from transformers.processing_utils import ProcessingKwargs, ProcessorMixin, Unpack
 from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
 from transformers.utils import logging
 from transformers.feature_extraction_utils import BatchFeature
 
 logger = logging.get_logger(__name__)
+
+
+class CoEncoderDualTokenizerKwargs(ProcessingKwargs, total=False):
+    _defaults = {
+        "context_kwargs": {
+            "padding": False,
+        },
+        "text_kwargs": {
+            "padding": False,
+        },
+    }
+
 
 class CoEncoderDualTokenizer(ProcessorMixin):
     r"""
@@ -26,13 +39,33 @@ class CoEncoderDualTokenizer(ProcessorMixin):
 
     def __init__(self, context_tokenizer=None, text_tokenizer=None):
         super().__init__(context_tokenizer, text_tokenizer)
+    
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs):
+        """
+        Load both context and text tokenizers from a given repository.
+
+        Args:
+            pretrained_model_name_or_path (str): The name or path of the Hugging Face repository.
+
+        Returns:
+            CoEncoderDualTokenizer: An instance of the tokenizer class.
+        """
+        # Load context_tokenizer from 'context_tokenizer' directory
+        context_tokenizer = AutoTokenizer.from_pretrained(f"{pretrained_model_name_or_path}/context_tokenizer", **kwargs)
+
+        # Load text_tokenizer from 'text_tokenizer' directory
+        text_tokenizer = AutoTokenizer.from_pretrained(f"{pretrained_model_name_or_path}/text_tokenizer", **kwargs)
+
+        # Return a new instance of CoEncoderDualTokenizer with both tokenizers loaded
+        return cls(context_tokenizer=context_tokenizer, text_tokenizer=text_tokenizer)
 
     def __call__(
         self,
         context: Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]] = None,
         text: Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]] = None,
         return_tensors: Optional[str] = None,
-        **kwargs
+        **kwargs: Unpack[CoEncoderDualTokenizerKwargs]
     ) -> BatchFeature:
         """
         Main method to prepare inputs for the CoEncoder model.
