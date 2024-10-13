@@ -74,7 +74,15 @@ class CoEncoderModelBuilder:
         self.output_path = output_path
         self.auth_token = auth_token
 
-    def build_and_save_model(self):
+    def build_and_save_model(
+        self,
+        ignore_index=-100,
+        projector_hidden_act="gelu",
+        context_feature_layer=-2,
+        context_feature_select_strategy="default",
+        begin_of_context_token_id=None,
+        end_of_context_token_id=None
+    ):
         """
         Build the CoEncoder model from separate LLMs and save it.
         """
@@ -100,6 +108,12 @@ class CoEncoderModelBuilder:
         config = CoEncoderConfig(
             context_config=context_model.config,
             text_config=text_model.config,
+            ignore_index=ignore_index,
+            projector_hidden_act=projector_hidden_act,
+            context_feature_layer=context_feature_layer,
+            context_feature_select_strategy=context_feature_select_strategy,
+            begin_of_context_token_id=begin_of_context_token_id,
+            end_of_context_token_id=end_of_context_token_id,
             torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16
         )
 
@@ -115,7 +129,7 @@ class CoEncoderModelBuilder:
         # The multi_modal_projector is already initialized in the CoEncoderForConditionalGeneration constructor
 
         # Save the combined model
-        co_encoder_model.save_pretrained(self.output_path)
+        co_encoder_model.save_pretrained(self.output_path, max_shard_size="10GB")
         # config.save_pretrained(self.output_path)
 
         print(f"CoEncoder model saved to {self.output_path}")

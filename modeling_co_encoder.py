@@ -145,6 +145,8 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
 
         self.vocab_size = config.text_config.vocab_size
         self.ignore_index = config.ignore_index if hasattr(config, 'ignore_index') else -100
+        self.begin_of_context_token_id = config.begin_of_context_token_id
+        self.end_of_context_token_id = config.end_of_context_token_id
         
         self.post_init()
     
@@ -255,6 +257,8 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
 
         # Process context input through ContextTower
         if context_input_ids is not None:
+            context_input_ids = context_input_ids.insert(0, self.begin_of_context_token_id)
+            context_input_ids = context_input_ids.append(self.end_of_context_token_id)
             context_features = self.context_tower(context_input_ids)
             context_features = self.multi_modal_projector(context_features)
         else:

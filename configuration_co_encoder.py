@@ -22,6 +22,8 @@ class CoEncoderConfig(PretrainedConfig):
         projector_hidden_act="gelu",
         context_feature_layer=-2,
         context_feature_select_strategy="default",
+        begin_of_context_token_id=None,
+        end_of_context_token_id=None,
         tie_word_embeddings=False,
         **kwargs,
     ):
@@ -29,6 +31,8 @@ class CoEncoderConfig(PretrainedConfig):
         self.projector_hidden_act = projector_hidden_act
         self.context_feature_layer = context_feature_layer
         self.context_feature_select_strategy = context_feature_select_strategy
+        self.begin_of_context_token_id = begin_of_context_token_id
+        self.end_of_context_token_id = end_of_context_token_id
 
         if context_feature_select_strategy not in ["default"]:
             raise ValueError(
@@ -58,5 +62,7 @@ class CoEncoderConfig(PretrainedConfig):
             projector_hidden_act=projector_hidden_act,
             context_feature_layer=context_feature_layer, 
             context_feature_select_strategy=context_feature_select_strategy,
+            begin_of_context_token_id=begin_of_context_token_id,
+            end_of_context_token_id=end_of_context_token_id,
             **kwargs
         )
