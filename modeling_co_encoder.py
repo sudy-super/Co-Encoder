@@ -1,7 +1,6 @@
 # coding=utf-8
 """PyTorch CoEncoder model."""
 
-
 import math
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
@@ -207,20 +206,27 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
         batch_size, seq_length, embed_dim = inputs_embeds.shape
         num_contexts = context_features.size(0)
 
+        # Create embeddings for begin and end of context tokens
+        begin_context_embed = self.get_input_embeddings()(torch.tensor(self.begin_of_context_token_id, device=context_features.device))
+        end_context_embed = self.get_input_embeddings()(torch.tensor(self.end_of_context_token_id, device=context_features.device))
+
+        # Add the embeddings to the context features
+        context_features = torch.cat([begin_context_embed.unsqueeze(0), context_features, end_context_embed.unsqueeze(0)], dim=0)
+
         # Extend sequence length to accommodate context features
-        new_seq_length = seq_length + num_contexts
+        new_seq_length = seq_length + num_contexts + 2
         
         # Create new tensors with extended sequence length
-        new_inputs_embeds = torch.cat([context_features, inputs_embeds], dim=1)
+        new_inputs_embeds = torch.cat([context_features.unsqueeze(0).expand(batch_size, -1, -1), inputs_embeds], dim=1)
         new_attention_mask = torch.cat([
-            torch.ones(batch_size, num_contexts, device=attention_mask.device, dtype=attention_mask.dtype),
+            torch.ones(batch_size, num_contexts + 2, device=attention_mask.device, dtype=attention_mask.dtype),
             attention_mask
         ], dim=1)
         new_position_ids = torch.arange(new_seq_length, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
         
         if labels is not None:
             new_labels = torch.cat([
-                torch.full((batch_size, num_contexts), self.ignore_index, device=labels.device, dtype=labels.dtype),
+                torch.full((batch_size, num_contexts + 2), self.ignore_index, device=labels.device, dtype=labels.dtype),
                 labels
             ], dim=1)
         else:
@@ -244,9 +250,34 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, CoEncoderCausalLMOutputWithPast]:
         """
-        Temporary docstring
+        Perform a forward pass through the CoEncoder model, optionally conditioning on context input.
+
+        Args:
+            input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Token IDs of the input sequence.
+            context_input_ids (`torch.LongTensor` of shape `(batch_size, context_sequence_length)`, *optional*):
+                Token IDs of the context input sequence.
+            attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Mask to avoid performing attention on padding token indices.
+            position_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Indices of positions of each input sequence token.
+            past_key_values (`List[torch.FloatTensor]`, *optional*):
+                Pre-computed hidden-states (key and value tensors) that can be used to speed up sequential decoding.
+            inputs_embeds (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
+                Optionally, instead of passing `input_ids`, you can pass an embedded representation directly.
+            labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+                Labels for computing the language modeling loss.
+            use_cache (`bool`, *optional*):
+                If `True`, past key values will be used to speed up decoding.
+            output_attentions (`bool`, *optional*):
+                If `True`, return the attention tensors for each layer.
+            output_hidden_states (`bool`, *optional*):
+                If `True`, return the hidden states of all layers.
+            return_dict (`bool`, *optional*):
+                If `True`, return a `CoEncoderCausalLMOutputWithPast` instead of a plain tuple.
 
         Returns:
+            `Union[Tuple, CoEncoderCausalLMOutputWithPast]`: A tuple containing various model outputs or a `CoEncoderCausalLMOutputWithPast` instance.
         """
 
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -257,8 +288,6 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
 
         # Process context input through ContextTower
         if context_input_ids is not None:
-            context_input_ids = context_input_ids.insert(0, self.begin_of_context_token_id)
-            context_input_ids = context_input_ids.append(self.end_of_context_token_id)
             context_features = self.context_tower(context_input_ids)
             context_features = self.multi_modal_projector(context_features)
         else:
