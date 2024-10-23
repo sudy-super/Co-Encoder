@@ -88,7 +88,7 @@ class CoEncoderContextTower(nn.Module):
     def __init__(self, config: CoEncoderConfig):
         super().__init__()
 
-        self.llm = AutoModelForCausalLM.from_config(
+        self.context_tower = AutoModelForCausalLM.from_config(
             config.context_config
         )
         self.select_layer = config.context_feature_layer
@@ -98,9 +98,8 @@ class CoEncoderContextTower(nn.Module):
         return hidden_states[self.select_layer]
 
     def forward(self, inputs):
-        outputs = self.llm(inputs, output_hidden_states=True)
+        outputs = self.context_tower(inputs, output_hidden_states=True)
         features = self.feature_select(outputs)
-
         return features
     
 
