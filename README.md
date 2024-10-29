@@ -7,4 +7,4 @@ Context Compressive Encoder in Large Language Models
 <img src="images/coencoder_overall.png" width="70%">
 
 ### Connector architecture
-<img src="images/coencoder_connector.png" width="70%">
+<img src="images/connector.png" width="70%">
