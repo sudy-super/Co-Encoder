@@ -6,7 +6,7 @@ builder = CoEncoderModelBuilder(
             context_model_name="Qwen/Qwen2-0.5B",
             text_model_name="meta-llama/Llama-3.1-8B-Instruct",
             output_path="./co_model",
-            auth_token="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"
+            auth_token=""
 )
 
 """
@@ -14,7 +14,7 @@ tokenizer_builder = CoEncoderTokenizerBuilder(
             context_model_name="Qwen/Qwen2-0.5B",
             text_model_name="meta-llama/Llama-3.1-8B-Instruct",
             output_path="./co_model",
-            auth_token="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"
+            auth_token=""
 )
 """
 
