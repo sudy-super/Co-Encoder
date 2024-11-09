@@ -255,6 +255,7 @@ class GroupedLengthSampler(Sampler):
         self.batches = [self.indices_lengths[i:i + self.batch_size] for i in range(0, len(self.indices_lengths), self.batch_size)]
 
         if self.shuffle:
+            random.seed(42)
             random.shuffle(self.batches)
 
         # フラットなインデックスリストを作成
