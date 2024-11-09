@@ -1,6 +1,6 @@
 from  transformers import AutoTokenizer
 
-tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", token="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")
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", token="")
 
 messages = [
     # {"role": "system", "content": "You are an honest and talented Japanese assistant."},
