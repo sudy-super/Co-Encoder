@@ -1,4 +1,4 @@
-from coencoder_src.building_co_encoder import CoEncoderModelBuilder, CoEncoderTokenizerBuilder
+from model.building_co_encoder import CoEncoderModelBuilder, CoEncoderTokenizerBuilder
 
 import torch
 
