@@ -1,140 +1,146 @@
+# booksum_en: chapter, instruction, output
+# result_en: chapter, instruction, output
+# result_jp: chapter, instruction, output
+# baobabu: input, question, answer
+
+"""
+{
+    "context": <context>,
+    "conversations": [
+        {"from": "user", "value": <value>},
+        {"from": "assistant", "value": <value>}
+    ]
+}
+"""
+
 import json
+import random
 
+instruction_list = [
+    "この文を短くまとめてください。",
+    "この情報を手短に説明してください。",
+    "上記の内容について簡潔に教えてください。",
+    "これの要点だけ教えてもらえますか？",
+    "このコンテキストを簡単に説明していただけると助かります。",
+    "これを要約していただけますか？",
+    "コンパクトにお願いします。",
+    "この情報についてサクッと教えて",
+    "上記の文章を短くしてください。",
+]
 
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\oasst2.jsonl", "r", encoding="utf-8") as in_file:
-    train_list = []
-    val_list = []
-    count = 0
-    for line in in_file:
-        data = json.loads(line)
-        if count % 200 == 0:
-            val_list.append(data)
-        else:
-            train_list.append(data)
-        count += 1
+def process_and_write(file_path, context_key, instruction_key=None, output_key=None, random_instruction=False, count=0, first_flags=None):
+    global train_file, val_file, test_file
 
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\oasst2_train.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(train_list, ensure_ascii=False, indent=4) + "\n")
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\oasst2_val.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(val_list, ensure_ascii=False, indent=4) + "\n")
-
-
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\rose_rp_v2.jsonl", "r", encoding="utf-8") as in_file:
-    train_list = []
-    val_list = []
-    count = 0
-    for line in in_file:
-        data = json.loads(line)
-        if count % 100 == 0:
-            val_list.append(data)
-        else:
-            train_list.append(data)
-        count += 1
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\rp_train.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(train_list, ensure_ascii=False, indent=4) + "\n")
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\rp_val.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(val_list, ensure_ascii=False, indent=4) + "\n")
-
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\aozora_summary.jsonl", "r", encoding="utf-8") as in_file:
-    train_list = []
-    val_list = []
-    count = 0
-    for line in in_file:
-        data = json.loads(line)
-        if count % 100 == 0:
-            val_list.append(data)
-        else:
-            train_list.append(data)
-        count += 1
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\aozora_summary_train.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(train_list, ensure_ascii=False, indent=4) + "\n")
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\aozora_summary_val.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(val_list, ensure_ascii=False, indent=4) + "\n")
-
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\aozora_inst.jsonl", "r", encoding="utf-8") as in_file:
-    train_list = []
-    val_list = []
-    count = 0
-    for line in in_file:
-        data = json.loads(line)
-        if count % 100 == 0:
-            val_list.append(data)
-        else:
-            train_list.append(data)
-        count += 1
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\aozora_inst_train.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(train_list, ensure_ascii=False, indent=4) + "\n")
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\raozora_inst_val.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(val_list, ensure_ascii=False, indent=4) + "\n")
-
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\wikipedia-human-retrieval-ja.jsonl", "r", encoding="utf-8") as in_file:
-    train_list = []
-    val_list = []
-    count = 0
-    for line in in_file:
-        data = json.loads(line)
-        if count % 100 == 0:
-            val_list.append(data)
-        else:
-            train_list.append(data)
-        count += 1
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\baobabu_train.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(train_list, ensure_ascii=False, indent=4) + "\n")
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\baobabu_val.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(val_list, ensure_ascii=False, indent=4) + "\n")
-
-
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\amenokaku.json", "r", encoding="utf-8") as in_file:
-    train_list = []
-    val_list = []
-    lines = json.load(in_file)
-    count = 0
-    c = 0
-    for line in lines:
-        if count % 1 == 0:
-            data = line
-            if c % 100 == 0:
-                val_list.append(data)
+    with open(file_path, "r", encoding="utf-8") as file:
+        for line in file:
+            data = json.loads(line)
+            if random_instruction:
+                instruction = random.choice(instruction_list)
+            elif instruction_key:
+                instruction = data[instruction_key]
             else:
-                train_list.append(data)
-            c += 1
-        count += 1
+                instruction = random.choice(instruction_list)
+            new_data = {
+                "context": data[context_key],
+                "instruction": instruction,
+                "output": data[output_key]
+            }
+            final_data = {
+                "context": new_data["context"],
+                "conversations": [
+                    {"from": "user", "value": new_data["instruction"]},
+                    {"from": "assistant", "value": new_data["output"]}
+                ]
+            }
 
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\amenokaku_train.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(train_list, ensure_ascii=False, indent=4) + "\n")
+            # データの分割とファイルへの書き込み
+            if count % 330 == 0:
+                if not first_flags['test']:
+                    test_file.write(",\n")
+                else:
+                    first_flags['test'] = False
+                test_file.write(json.dumps(final_data, ensure_ascii=False, indent=4))
+            elif count % 20 == 0:
+                if not first_flags['val']:
+                    val_file.write(",\n")
+                else:
+                    first_flags['val'] = False
+                val_file.write(json.dumps(final_data, ensure_ascii=False, indent=4))
+            else:
+                if not first_flags['train']:
+                    train_file.write(",\n")
+                else:
+                    first_flags['train'] = False
+                train_file.write(json.dumps(final_data, ensure_ascii=False, indent=4))
+            count += 1
+    return count, first_flags
 
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\amenokaku_val.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(val_list, ensure_ascii=False, indent=4) + "\n")
+# 出力ファイルを開き、'['を書き込む
+with open("data/train.json", "w", encoding="utf-8") as train_file, \
+     open("data/val.json", "w", encoding="utf-8") as val_file, \
+     open("data/test.json", "w", encoding="utf-8") as test_file:
 
+    train_file.write("[\n")
+    val_file.write("[\n")
+    test_file.write("[\n")
 
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\null_instruct.json", "r", encoding="utf-8") as in_file:
-    train_list = []
-    val_list = []
     count = 0
-    datas = json.load(in_file)
-    for line in datas:
-        data = line
-        if count % 100 == 0:
-            val_list.append(data)
-        else:
-            train_list.append(data)
-        count += 1
+    first_flags = {'train': True, 'val': True, 'test': True}
 
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\null_train.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(train_list, ensure_ascii=False, indent=4) + "\n")
+    # 各データファイルの処理
+    count, first_flags = process_and_write("data/booksum_en.jsonl", "chapter", "instruction", "output", count=count, first_flags=first_flags)
+    count, first_flags = process_and_write("data/result_en.jsonl", "chapter", "instruction", "output", count=count, first_flags=first_flags)
 
-with open("C:\\Users\\rakut.LAPTOP-RNFJPRJD\\Downloads\\null_val.json", "w", encoding="utf-8") as out_file:
-    out_file.write(json.dumps(val_list, ensure_ascii=False, indent=4) + "\n")
+    # result_jp.jsonlの処理（エラーハンドリング付き）
+    with open("data/result_jp.jsonl", "r", encoding="utf-8") as result_jp_file:
+        for idx, line in enumerate(result_jp_file):
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                print(f"JSONデコードエラーが発生しました。行番号: {idx + 1}")
+                continue
+            new_data = {
+                "context": data["chapter"],
+                "instruction": data["instruction"],
+                "output": data["output"]
+            }
+            final_data = {
+                "context": new_data["context"],
+                "conversations": [
+                    {"from": "user", "value": new_data["instruction"]},
+                    {"from": "assistant", "value": new_data["output"]}
+                ]
+            }
+            # データの分割とファイルへの書き込み
+            if count % 330 == 0:
+                if not first_flags['test']:
+                    test_file.write(",\n")
+                else:
+                    first_flags['test'] = False
+                test_file.write(json.dumps(final_data, ensure_ascii=False, indent=4))
+            elif count % 20 == 0:
+                if not first_flags['val']:
+                    val_file.write(",\n")
+                else:
+                    first_flags['val'] = False
+                val_file.write(json.dumps(final_data, ensure_ascii=False, indent=4))
+            else:
+                if not first_flags['train']:
+                    train_file.write(",\n")
+                else:
+                    first_flags['train'] = False
+                train_file.write(json.dumps(final_data, ensure_ascii=False, indent=4))
+            count += 1
+
+    # baobabu.jsonlの処理
+    count, first_flags = process_and_write("data/baobabu.jsonl", "input", "question", "answer", count=count, first_flags=first_flags)
+    count, first_flags = process_and_write("data/aozora_inst.jsonl", "input", "instruction", "response", count=count, first_flags=first_flags)
+    count, first_flags = process_and_write("data/aozora_summary.jsonl", "input", output_key="generated", random_instruction=True, count=count, first_flags=first_flags)
+    count, first_flags = process_and_write("data/aozora_summary1.jsonl", "input", output_key="generated", random_instruction=True, count=count, first_flags=first_flags)
+
+    # 出力ファイルに']'を書き込む
+    train_file.write("\n]")
+    val_file.write("\n]")
+    test_file.write("\n]")
+
+    print(f"処理した合計アイテム数: {count}")
