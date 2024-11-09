@@ -97,9 +97,82 @@ class CoEncoderDualTokenizer(ProcessorMixin):
                 return_tensors=return_tensors,
                 **kwargs.get("text_kwargs", {})
             )
-            features.update({f"text_{k}": v for k, v in text_features.items()})
+            features.update({k: v for k, v in text_features.items()})
 
         return BatchFeature(data=features, tensor_type=return_tensors)
+
+    def pad(
+        self,
+        encoded_inputs,
+        padding=True,
+        max_length=None,
+        return_tensors=None,
+        **kwargs
+    ):
+        """
+        Pads the encoded inputs to the maximum length in the batch.
+
+        Args:
+            encoded_inputs: A list of dictionaries containing context and text features.
+            padding: Whether to pad sequences.
+            max_length: Maximum length for padding.
+            return_tensors: Type of tensors to return.
+
+        Returns:
+            A dictionary with padded sequences.
+        """
+        # Separate context and text features
+        context_features = []
+        text_features = []
+
+        for feature in encoded_inputs:
+            # Extract context features
+            context_feature = {
+                k[len("context_"):]: v
+                for k, v in feature.items()
+                if k.startswith("context_")
+            }
+            if context_feature:
+                context_features.append(context_feature)
+            # Extract text features
+            text_feature = {
+                k[len("input_"):]: v
+                for k, v in feature.items()
+                if k.startswith("input_")
+            }
+            if text_feature:
+                text_features.append(text_feature)
+
+        # Pad context features
+        if context_features:
+            context_padded = self.context_tokenizer.pad(
+                context_features,
+                padding=padding,
+                max_length=max_length,
+                return_tensors=return_tensors,
+                **kwargs.get("context_kwargs", {})
+            )
+            context_padded = {f"context_{k}": v for k, v in context_padded.items()}
+        else:
+            context_padded = {}
+
+        # Pad text features
+        if text_features:
+            text_padded = self.text_tokenizer.pad(
+                text_features,
+                padding=padding,
+                max_length=max_length,
+                return_tensors=return_tensors,
+                **kwargs.get("text_kwargs", {})
+            )
+            text_padded = {k: v for k, v in text_padded.items()}
+        else:
+            text_padded = {}
+
+        # Combine padded features
+        padded_features = {**context_padded, **text_padded}
+
+        return BatchFeature(data=padded_features, tensor_type=return_tensors)
 
     def batch_decode(self, *args, **kwargs):
         """

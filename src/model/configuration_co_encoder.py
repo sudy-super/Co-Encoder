@@ -19,7 +19,7 @@ class CoEncoderConfig(PretrainedConfig):
         context_config=None,
         text_config=None,
         ignore_index=-100,
-        projector_hidden_act="gelu",
+        connector_hidden_act="gelu",
         context_feature_layer=-2,
         context_feature_select_strategy="default",
         begin_of_context_token_id=None,
@@ -28,7 +28,7 @@ class CoEncoderConfig(PretrainedConfig):
         **kwargs,
     ):
         self.ignore_index = ignore_index
-        self.projector_hidden_act = projector_hidden_act
+        self.connector_hidden_act = connector_hidden_act
         self.context_feature_layer = context_feature_layer
         self.context_feature_select_strategy = context_feature_select_strategy
         self.begin_of_context_token_id = begin_of_context_token_id
@@ -59,7 +59,7 @@ class CoEncoderConfig(PretrainedConfig):
         super().__init__(
             tie_word_embeddings=tie_word_embeddings, 
             ignore_index=ignore_index,
-            projector_hidden_act=projector_hidden_act,
+            connector_hidden_act=connector_hidden_act,
             context_feature_layer=context_feature_layer, 
             context_feature_select_strategy=context_feature_select_strategy,
             begin_of_context_token_id=begin_of_context_token_id,

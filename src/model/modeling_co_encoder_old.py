@@ -14,11 +14,14 @@ from transformers import PreTrainedModel
 from transformers.activations import ACT2FN
 from transformers.image_processing_utils import select_best_resolution
 from transformers.modeling_outputs import ModelOutput
+from transformers.modeling_flash_attention_utils import FlashAttentionKwargs, _flash_attention_forward
 from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     logging,
     replace_return_docstrings,
+    is_flash_attn_2_available,
+    is_flash_attn_greater_or_equal_2_10
 )
 from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
 from .configuration_co_encoder import CoEncoderConfig
@@ -90,16 +93,16 @@ class CoEncoderDynamicAttention(nn.Module):
     def __init__(self, config: CoEncoderConfig):
         super().__init__()
 
-        self.hidden_size = config.text_config.hidden_size
-        self.num_heads = config.text_config.num_attention_heads
-        self.head_dim = getattr(config.text_config, "head_dim", self.hidden_size // self.num_heads)
-        self.num_key_value_heads = config.text_config.num_key_value_heads
+        self.hidden_size = config.context_config.hidden_size
+        self.num_heads = config.context_config.num_attention_heads
+        self.head_dim = getattr(config.context_config, "head_dim", self.hidden_size // self.num_heads)
+        self.num_key_value_heads = config.context_config.num_key_value_heads
         self.num_key_value_groups = self.num_heads // self.num_key_value_heads
 
         # Query, Key, Value, and Output Projections
         self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
-        self.k_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
+        self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
         self.o_proj = nn.Linear(self.num_heads * self.head_dim, 1, bias=False)
 
     def forward(
@@ -117,8 +120,8 @@ class CoEncoderDynamicAttention(nn.Module):
 
         # Reshape and transpose to [batch_size, num_heads, seq_len, head_dim]
         query_states = query_states.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = key_states.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        value_states = value_states.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, seq_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(bsz, seq_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
         # Repeat key and value states for multi-head attention
         key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -146,6 +149,84 @@ class CoEncoderDynamicAttention(nn.Module):
         return attn_output, attn_weights
 
 
+class CoEncoderDynamicFlashAttention2(CoEncoderDynamicAttention):
+    def __init__(self, config: CoEncoderConfig):
+        super().__init__(config)
+        self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
+        self.is_causal = False  # Assuming non-causal attention for this context
+        self.config = config
+
+    def forward(
+        self,
+        hidden_states,
+        output_attentions=False,
+    ):
+        output_attentions = False
+
+        # Get input dimensions
+        bsz, seq_len, hidden_size = hidden_states.size()
+        q_len = seq_len
+
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
+
+        query_states = query_states.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, seq_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(bsz, seq_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+
+        # Repeat key and value states for multi-head attention
+        key_states = repeat_kv(key_states, self.num_key_value_groups)
+        value_states = repeat_kv(value_states, self.num_key_value_groups)
+
+        input_dtype = query_states.dtype
+        if input_dtype == torch.float32:
+            if torch.is_autocast_enabled():
+                target_dtype = torch.get_autocast_gpu_dtype()
+            # Handle the case where the model is quantized
+            elif hasattr(self.config, "_pre_quantization_dtype"):
+                target_dtype = self.config._pre_quantization_dtype
+            else:
+                target_dtype = self.q_proj.weight.dtype
+
+            logger.warning_once(
+                f"The input hidden states seem to be silently casted in float32, which might be related to"
+                f" upcasted embedding or layer norm layers in float32. Casting back the input to {target_dtype}."
+            )
+
+            query_states = query_states.to(target_dtype)
+            key_states = key_states.to(target_dtype)
+            value_states = value_states.to(target_dtype)
+
+        # Define attention_mask (assuming all positions are valid)
+        attention_mask = None  # Since we have no padding tokens or specific masking
+
+        # Define other required variables
+        position_ids = None
+        dropout_rate = getattr(self.config.context_config, "attention_dropout", 0.0)
+
+        attn_output = _flash_attention_forward(
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            q_len,
+            position_ids=position_ids,
+            dropout=dropout_rate,
+            sliding_window=getattr(self, "sliding_window", None),
+            use_top_left_mask=self._flash_attn_uses_top_left_mask,
+            is_causal=self.is_causal,
+        )
+
+        attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
+        attn_output = self.o_proj(attn_output)
+
+        if not output_attentions:
+            attn_weights = None
+
+        return attn_output, attn_weights
+
+
 class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
     """
     A module that dynamically determines the output size based on input
@@ -155,9 +236,9 @@ class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
     def __init__(self, config, output_size_min=32, output_size_max=131072):
         super().__init__()
         # Attention mechanism for estimating output size
-        self.size_estimation_attention = CoEncoderDynamicAttention(config)
+        self.size_estimation_attention = CoEncoderDynamicFlashAttention2(config)
         # Attention mechanism for weighted pooling
-        self.weighted_pooling_attention = CoEncoderDynamicAttention(config)
+        self.weighted_pooling_attention = CoEncoderDynamicFlashAttention2(config)
         self.output_size_min = output_size_min
         self.output_size_max = (
             config.context_config.max_position_embeddings if config.context_config.max_position_embeddings is not None else output_size_max
@@ -185,7 +266,7 @@ class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
         # Calculate dynamic output sizes for each batch item
         # (batch_size, seq_len, 1) -> (batch_size, 1)
         batch_attn_means = torch.sigmoid(attn_output_size).mean(dim=1)
-        scaled_batch_means = batch_attn_means * self.scale_param
+        scaled_batch_means = batch_attn_means * self.scale_param.to(batch_attn_means.dtype)
 
         # Calculate dynamic output sizes (batch_size,)
         dynamic_output_sizes = (
@@ -205,7 +286,7 @@ class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
 
         # Initialize output tensors
         # pooled_output: (batch_size, max_pooled_len, hidden_size)
-        pooled_output = torch.zeros(batch_size, max_pooled_len, hidden_size, device=device)
+        pooled_output = torch.zeros(batch_size, max_pooled_len, hidden_size, device=device, dtype=hidden_states.dtype)
         # attention_mask: (batch_size, max_pooled_len)
         attention_mask = torch.zeros(batch_size, max_pooled_len, dtype=torch.bool, device=device)
 
@@ -225,7 +306,7 @@ class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
                 chunk_weights = item_weights[start:end]  # Shape: (chunk_size)
                 if chunk_weights.sum() == 0:
                     # If the sum of weights is zero, add a zero vector
-                    pooled_value = torch.zeros(hidden_size, device=device)
+                    pooled_value = torch.zeros(hidden_size, device=device, dtype=hidden_states.dtype)
                 else:
                     # Calculate weighted average
                     weighted_input = chunk_input * chunk_weights.unsqueeze(-1)  # Shape: (chunk_size, hidden_size)
@@ -240,7 +321,7 @@ class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
         return pooled_output, attention_mask, dynamic_output_sizes
 
 
-class CoEncoderMultiModalProjector(nn.Module):
+class CoEncoderContextLanguageConnector(nn.Module):
     def __init__(self, config: CoEncoderConfig):
         super().__init__()
 
@@ -253,7 +334,9 @@ class CoEncoderMultiModalProjector(nn.Module):
     def forward(self, context_features):
         # context_features: [batch_size, seq_len, hidden_size]
         # Apply dynamic adaptive average pooling with attention
-        pooled_output, attention_mask, dynamic_output_sizes = self.dynamic_pooling(context_features)
+        pooled_output, attention_mask, dynamic_output_sizes = self.dynamic_pooling(
+            hidden_states=context_features
+        )
         # pooled_output: [batch_size, max_pooled_len, hidden_size]
 
         hidden_states = self.linear_1(pooled_output)
@@ -267,8 +350,9 @@ class CoEncoderContextTower(nn.Module):
     def __init__(self, config: CoEncoderConfig):
         super().__init__()
 
-        self.context_tower = AutoModelForCausalLM.from_config(
-            config.context_config
+        self.tower = AutoModelForCausalLM.from_config(
+            config.context_config,
+            attn_implementation="flash_attention_2" if is_flash_attn_2_available() else "eager"
         )
         self.select_layer = config.context_feature_layer
     
@@ -276,8 +360,11 @@ class CoEncoderContextTower(nn.Module):
         hidden_states = llm_outputs.hidden_states
         return hidden_states[self.select_layer]
 
-    def forward(self, inputs):
-        outputs = self.context_tower(inputs, output_hidden_states=True)
+    def forward(self, inputs, context_attention_mask):
+        outputs = self.tower(input_ids=inputs,
+                             attention_mask=context_attention_mask,
+                             output_hidden_states=True
+        )
         features = self.feature_select(outputs)
         return features
     
@@ -286,7 +373,7 @@ class CoEncoderPreTrainedModel(PreTrainedModel):
     config_class = CoEncoderConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
-    _no_split_modules = ["CoEncoderMultiModalProjector", "CoEncoderContextTower"]
+    _no_split_modules = [] # ["CoEncoderContextLanguageConnector", "CoEncoderContextTower"]
     _skip_keys_device_placement = ["past_key_values"]
     _supports_flash_attn_2 = True
     _supports_sdpa = True
@@ -314,10 +401,11 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
     def __init__(self, config: CoEncoderConfig):
         super().__init__(config)
         self.context_tower = CoEncoderContextTower(config)
-        self.multi_modal_projector = CoEncoderMultiModalProjector(config)
+        self.connector = CoEncoderContextLanguageConnector(config)
 
         self.language_model = AutoModelForCausalLM.from_config(
-            config.text_config
+            config.text_config,
+            attn_implementation="flash_attention_2" if is_flash_attn_2_available() else "eager"
         )
 
         self.vocab_size = config.text_config.vocab_size
@@ -394,7 +482,7 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
         for i in range(batch_size):
             padding_len = padding_lengths[i].item()
             # Create padding embeddings (zeros)
-            padding_embed = torch.zeros(padding_len, embed_dim, device=context_features.device)
+            padding_embed = torch.zeros(padding_len, embed_dim, device=context_features.device, dtype=context_features.dtype)
             # Get actual context features (excluding padding)
             actual_context = context_features[i, padding_len:context_seq_len]
             # Concatenate padding, begin token, actual context, end token
@@ -457,6 +545,7 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
         self,
         input_ids: torch.LongTensor = None,
         context_input_ids: torch.LongTensor = None,
+        context_attention_mask: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
@@ -506,8 +595,10 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
 
         # Process context input through ContextTower
         if context_input_ids is not None:
-            context_features = self.context_tower(context_input_ids)
-            context_features, context_attention_mask = self.multi_modal_projector(context_features)
+            context_features = self.context_tower(context_input_ids, context_attention_mask)
+            context_features, context_attention_mask = self.connector(
+                context_features=context_features
+            )
         else:
             context_features = None
             context_attention_mask = None

@@ -7,7 +7,7 @@ from transformers.utils import is_flash_attn_2_available
 from .modeling_co_encoder import (
     CoEncoderForConditionalGeneration, 
     CoEncoderConfig, 
-    CoEncoderMultiModalProjector,
+    CoEncoderContextLanguageConnector,
     CoEncoderContextTower
 )
 
@@ -90,7 +90,7 @@ class CoEncoderModelBuilder:
         context_model = AutoModelForCausalLM.from_pretrained(
             self.context_model_name, 
             attn_implementation=(
-                "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
+                "flash_attention_2" if is_flash_attn_2_available() else "eager"
             ),
             torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16,
             use_auth_token=self.auth_token if self.auth_token is not None else None
@@ -98,7 +98,7 @@ class CoEncoderModelBuilder:
         text_model = AutoModelForCausalLM.from_pretrained(
             self.text_model_name, 
             attn_implementation=(
-                "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
+                "flash_attention_2" if is_flash_attn_2_available() else "eager"
             ),
             torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float16,
             use_auth_token=self.auth_token if self.auth_token is not None else None
@@ -121,12 +121,12 @@ class CoEncoderModelBuilder:
         co_encoder_model = CoEncoderForConditionalGeneration(config)
 
         # Load state dict for context tower
-        co_encoder_model.context_tower.llm.load_state_dict(context_model.state_dict())
+        co_encoder_model.context_tower.tower.load_state_dict(context_model.state_dict())
 
         # Load state dict for language model
         co_encoder_model.language_model.load_state_dict(text_model.state_dict())
 
-        # The multi_modal_projector is already initialized in the CoEncoderForConditionalGeneration constructor
+        # The connector is already initialized in the CoEncoderForConditionalGeneration constructor
 
         # Save the combined model
         co_encoder_model.save_pretrained(self.output_path, max_shard_size="10GB")
