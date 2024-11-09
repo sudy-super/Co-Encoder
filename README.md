@@ -1,5 +1,5 @@
 # Co-Encoder: Context Compressive Encoder in Large Language Models
-Modeling of Co-Encoder architecture compatible with the transformers library.
+Modeling of the Co-Encoder architecture compatible with the Transformer library, and its training and other implementations.
 
 ## Archtecture
 
