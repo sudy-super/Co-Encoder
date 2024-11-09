@@ -7,7 +7,7 @@ import wandb
 
 # CoEncoderモデルとトークナイザーのインポート
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from ..model.modeling_co_encoder_old import CoEncoderForConditionalGeneration
+from ..model.modeling_co_encoder import CoEncoderForConditionalGeneration
 from ..model.tokenization_co_encoder import CoEncoderDualTokenizer
 
 from accelerate import infer_auto_device_map, dispatch_model
