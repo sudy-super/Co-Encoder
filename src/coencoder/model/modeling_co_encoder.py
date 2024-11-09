@@ -57,15 +57,18 @@ class CoEncoderCausalLMOutputWithPast(ModelOutput):
         past_key_values (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
             Tuple of `tuple(torch.FloatTensor)` of length `config.context_config.num_layers`, with each tuple having 2 tensors of shape
             `(batch_size, num_heads, sequence_length, embed_size_per_head)`)
+
             Contains pre-computed hidden-states (key and values in the self-attention blocks) that can be used (see
             `past_key_values` input) to speed up sequential decoding.
         hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
             Tuple of `torch.FloatTensor` (one for the output of the embeddings, if the model has an embedding layer, +
             one for the output of each layer) of shape `(batch_size, sequence_length, hidden_size)`.
+
             Hidden-states of the model at the output of each layer plus the optional initial embedding outputs.
         attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
             Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
             sequence_length)`.
+
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
         context_hidden_states (`torch.FloatTensor`, *optional*):
@@ -105,7 +108,6 @@ class CoEncoderDynamicAttention(nn.Module):
     def forward(
         self,
         hidden_states,
-        attention_mask=None,
         output_attentions=False,
     ):
         # Get input dimensions
@@ -127,11 +129,6 @@ class CoEncoderDynamicAttention(nn.Module):
 
         # Compute attention scores
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-        if attention_mask is not None:
-            # Expand attention_mask to match attn_weights shape
-            attn_mask = attention_mask[:, None, None, :].to(attn_weights.dtype)
-            attn_weights = attn_weights.masked_fill(attn_mask == 0, float('-inf'))
 
         # Apply softmax to get attention probabilities
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
@@ -158,16 +155,15 @@ class CoEncoderDynamicFlashAttention2(CoEncoderDynamicAttention):
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
         self.is_causal = False  # Assuming non-causal attention for this context
         self.config = config
-    
+
     def forward(
         self,
         hidden_states,
-        attention_mask=None,
         output_attentions=False,
     ):
         output_attentions = False
 
-        # 入力のサイズを取得
+        # Get input dimensions
         bsz, seq_len, hidden_size = hidden_states.size()
         q_len = seq_len
 
@@ -179,11 +175,33 @@ class CoEncoderDynamicFlashAttention2(CoEncoderDynamicAttention):
         key_states = key_states.view(bsz, seq_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, seq_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
-        # key および value の状態を繰り返す
+        # Repeat key and value states for multi-head attention
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
+        input_dtype = query_states.dtype
+        if input_dtype == torch.float32:
+            if torch.is_autocast_enabled():
+                target_dtype = torch.get_autocast_gpu_dtype()
+            # Handle the case where the model is quantized
+            elif hasattr(self.config, "_pre_quantization_dtype"):
+                target_dtype = self.config._pre_quantization_dtype
+            else:
+                target_dtype = self.q_proj.weight.dtype
 
+            logger.warning_once(
+                f"The input hidden states seem to be silently casted in float32, which might be related to"
+                f" upcasted embedding or layer norm layers in float32. Casting back the input to {target_dtype}."
+            )
+
+            query_states = query_states.to(target_dtype)
+            key_states = key_states.to(target_dtype)
+            value_states = value_states.to(target_dtype)
+
+        # Define attention_mask (assuming all positions are valid)
+        attention_mask = None  # Since we have no padding tokens or specific masking
+
+        # Define other required variables
         position_ids = None
         dropout_rate = getattr(self.config.context_config, "attention_dropout", 0.0)
 
@@ -209,7 +227,6 @@ class CoEncoderDynamicFlashAttention2(CoEncoderDynamicAttention):
         return attn_output, attn_weights
 
 
-
 class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
     """
     A module that dynamically determines the output size based on input
@@ -228,16 +245,15 @@ class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
         )
         self.scale_param = nn.Parameter(torch.tensor(0.01))
 
-    def forward(self, hidden_states, attention_mask=None):
+    def forward(self, hidden_states):
         """
         Args:
-            hidden_states: Input tensor of shape (batch_size, seq_len, hidden_size)
-            attention_mask: Attention mask tensor of shape (batch_size, seq_len)
+            x: Input tensor of shape (batch_size, seq_len, hidden_size)
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
                 - pooled_output: Padded tensor of compressed sequences (batch_size, max_pooled_len, hidden_size)
-                - output_attention_mask: Binary mask indicating valid tokens (batch_size, max_pooled_len)
+                - attention_mask: Binary mask indicating valid tokens (batch_size, max_pooled_len)
                 - dynamic_output_sizes: Dynamic output sizes for each batch (batch_size,)
         """
         batch_size, seq_len, hidden_size = hidden_states.size()
@@ -245,21 +261,11 @@ class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
 
         # Estimate output size using attention mechanism
         # attn_output_size: (batch_size, seq_len, 1)
-        attn_output_size, _ = self.size_estimation_attention(hidden_states, attention_mask=attention_mask)
-
-        # If attention_mask is provided, mask the attn_output_size
-        if attention_mask is not None:
-            attn_output_size = attn_output_size.squeeze(-1)  # Shape: (batch_size, seq_len)
-            attn_output_size = attn_output_size * attention_mask
-            attn_output_size = attn_output_size.unsqueeze(-1)  # Shape: (batch_size, seq_len, 1)
+        attn_output_size, _ = self.size_estimation_attention(hidden_states)
 
         # Calculate dynamic output sizes for each batch item
         # (batch_size, seq_len, 1) -> (batch_size, 1)
-        if attention_mask is not None:
-            counts = attention_mask.sum(dim=1, keepdim=True).clamp(min=1)
-            batch_attn_means = torch.sigmoid(attn_output_size).sum(dim=1) / counts
-        else:
-            batch_attn_means = torch.sigmoid(attn_output_size).mean(dim=1)
+        batch_attn_means = torch.sigmoid(attn_output_size).mean(dim=1)
         scaled_batch_means = batch_attn_means * self.scale_param.to(batch_attn_means.dtype)
 
         # Calculate dynamic output sizes (batch_size,)
@@ -273,66 +279,46 @@ class CoEncoderDynamicWeightedAvgPool1d(nn.Module):
 
         # Compute attention weights for weighted pooling
         # attn_output_weights: (batch_size, seq_len, 1)
-        attn_output_weights, _ = self.weighted_pooling_attention(hidden_states, attention_mask=attention_mask)
+        attn_output_weights, _ = self.weighted_pooling_attention(hidden_states)
         # Normalize with sigmoid function for use as weights
         # attention_weights: (batch_size, seq_len)
         attention_weights = torch.sigmoid(attn_output_weights).squeeze(-1)
 
-        # Mask attention weights
-        if attention_mask is not None:
-            attention_weights = attention_weights * attention_mask
-
         # Initialize output tensors
         # pooled_output: (batch_size, max_pooled_len, hidden_size)
         pooled_output = torch.zeros(batch_size, max_pooled_len, hidden_size, device=device, dtype=hidden_states.dtype)
-        # output_attention_mask: (batch_size, max_pooled_len)
-        output_attention_mask = torch.zeros(batch_size, max_pooled_len, dtype=torch.bool, device=device)
+        # attention_mask: (batch_size, max_pooled_len)
+        attention_mask = torch.zeros(batch_size, max_pooled_len, dtype=torch.bool, device=device)
 
         for batch_idx in range(batch_size):
             output_size = dynamic_output_sizes[batch_idx].item()
-            item_attention_mask = attention_mask[batch_idx] if attention_mask is not None else None
-
-            if item_attention_mask is not None:
-                # Get indices of non-padding tokens
-                non_padding_indices = item_attention_mask.nonzero().squeeze(-1)
-                actual_sequence_length = non_padding_indices.size(0)
-                item_input = hidden_states[batch_idx, non_padding_indices]
-                item_weights = attention_weights[batch_idx, non_padding_indices]
-            else:
-                actual_sequence_length = seq_len
-                item_input = hidden_states[batch_idx]
-                item_weights = attention_weights[batch_idx]
-
-            # Handle case when actual_sequence_length is zero
-            if actual_sequence_length == 0:
-                # All tokens are padding, skip to next batch item
-                continue
+            item_input = hidden_states[batch_idx]  # Shape: (seq_len, hidden_size)
+            item_weights = attention_weights[batch_idx]  # Shape: (seq_len)
 
             # Perform weighted pooling
             pooled_values = []
-            # Split the sequence evenly over the actual_sequence_length
-            intervals = torch.linspace(0, actual_sequence_length, steps=output_size + 1).long()
+            # Split the sequence evenly
+            intervals = torch.linspace(0, seq_len, steps=output_size + 1).long()
             for i in range(output_size):
                 start = intervals[i].item()
                 end = intervals[i + 1].item()
-                chunk_input = item_input[start:end]
-                chunk_weights = item_weights[start:end]
+                chunk_input = item_input[start:end]  # Shape: (chunk_size, hidden_size)
+                chunk_weights = item_weights[start:end]  # Shape: (chunk_size)
                 if chunk_weights.sum() == 0:
                     # If the sum of weights is zero, add a zero vector
                     pooled_value = torch.zeros(hidden_size, device=device, dtype=hidden_states.dtype)
                 else:
                     # Calculate weighted average
-                    weighted_input = chunk_input * chunk_weights.unsqueeze(-1)
-                    pooled_value = weighted_input.sum(dim=0) / (chunk_weights.sum() + 1e-8)
+                    weighted_input = chunk_input * chunk_weights.unsqueeze(-1)  # Shape: (chunk_size, hidden_size)
+                    pooled_value = weighted_input.sum(dim=0) / (chunk_weights.sum() + 1e-8)  # Shape: (hidden_size)
                 pooled_values.append(pooled_value)
             # Convert the result to a tensor
-            if len(pooled_values) > 0:
-                pooled_values = torch.stack(pooled_values)
-                # Store the result at the end of pooled_output
-                pooled_output[batch_idx, -output_size:] = pooled_values
-                output_attention_mask[batch_idx, -output_size:] = True
+            pooled_values = torch.stack(pooled_values)  # Shape: (output_size, hidden_size)
+            # Store the result
+            pooled_output[batch_idx, -output_size:] = pooled_values.squeeze(0)
+            attention_mask[batch_idx, -output_size:] = True
 
-        return pooled_output, output_attention_mask, dynamic_output_sizes
+        return pooled_output, attention_mask, dynamic_output_sizes
 
 
 class CoEncoderContextLanguageConnector(nn.Module):
@@ -345,12 +331,11 @@ class CoEncoderContextLanguageConnector(nn.Module):
         self.act = ACT2FN[config.projector_hidden_act]
         self.linear_2 = nn.Linear(config.text_config.hidden_size, config.text_config.hidden_size, bias=True)
 
-    def forward(self, context_features, context_attention_mask=None):
+    def forward(self, context_features):
         # context_features: [batch_size, seq_len, hidden_size]
         # Apply dynamic adaptive average pooling with attention
         pooled_output, attention_mask, dynamic_output_sizes = self.dynamic_pooling(
-            hidden_states=context_features,
-            attention_mask=context_attention_mask
+            hidden_states=context_features
         )
         # pooled_output: [batch_size, max_pooled_len, hidden_size]
 
@@ -376,10 +361,9 @@ class CoEncoderContextTower(nn.Module):
         return hidden_states[self.select_layer]
 
     def forward(self, inputs, context_attention_mask):
-        outputs = self.tower(
-            input_ids=inputs,
-            attention_mask=context_attention_mask,
-            output_hidden_states=True
+        outputs = self.tower(input_ids=inputs,
+                             attention_mask=context_attention_mask,
+                             output_hidden_states=True
         )
         features = self.feature_select(outputs)
         return features
@@ -478,7 +462,8 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
         
         # Determine the actual lengths of context sequences (excluding padding)
         if context_attention_mask is not None:
-            # context_attention_mask: [batch_size, context_seq_len]
+            # context_attention_mask: [batch_size, context_seq_len, 1]
+            context_attention_mask = context_attention_mask.squeeze(-1)  # [batch_size, context_seq_len]
             # Sum over sequence length to get actual lengths
             context_lengths = context_attention_mask.sum(dim=1).long()  # [batch_size]
         else:
@@ -581,8 +566,6 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
                 Token IDs of the context input sequence.
             attention_mask (`torch.Tensor` of shape `(batch_size, sequence_length)`, *optional*):
                 Mask to avoid performing attention on padding token indices.
-            context_attention_mask (`torch.Tensor` of shape `(batch_size, context_sequence_length)`, *optional*):
-                Mask to avoid performing attention on padding token indices in the context.
             position_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
                 Indices of positions of each input sequence token.
             past_key_values (`List[torch.FloatTensor]`, *optional*):
@@ -614,8 +597,7 @@ class CoEncoderForConditionalGeneration(CoEncoderPreTrainedModel):
         if context_input_ids is not None:
             context_features = self.context_tower(context_input_ids, context_attention_mask)
             context_features, context_attention_mask = self.connector(
-                context_features=context_features,
-                context_attention_mask=context_attention_mask
+                context_features=context_features
             )
         else:
             context_features = None
